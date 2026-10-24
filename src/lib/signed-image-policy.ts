@@ -1,0 +1,2 @@
+export const SIGNED_IMAGE_TTL_SECONDS = 3600;
+export const SIGNED_IMAGE_RENEW_MS = 55 * 60 * 1000;

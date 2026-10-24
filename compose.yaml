@@ -1,0 +1,56 @@
+name: siteen-daily
+services:
+  app:
+    image: siteen-daily:${SITEEN_RELEASE:-local}
+    build:
+      context: .
+      target: runtime
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Set public Supabase URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set publishable key}
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Set public Supabase URL}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set publishable key}
+      APP_ORIGIN: ${APP_ORIGIN:?Set exact website origin}
+      PDF_BROWSER: chromium
+      PDF_CHROMIUM_SANDBOX: "true"
+      # Chromium/Crashpad and font caches need writable ephemeral directories.
+      XDG_CONFIG_HOME: /tmp/siteen-config
+      XDG_CACHE_HOME: /tmp/siteen-cache
+    ports:
+      - "127.0.0.1:${SITEEN_LOCAL_PORT:-3000}:3000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./deploy/chromium-seccomp.json
+    shm_size: 256mb
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - next_cache:/app/.next/cache
+    mem_limit: ${SITEEN_MEMORY_LIMIT:-2g}
+    cpus: ${SITEEN_CPU_LIMIT:-2}
+    pids_limit: ${SITEEN_PID_LIMIT:-512}
+    stop_grace_period: 45s
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  next_cache:

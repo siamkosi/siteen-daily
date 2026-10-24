@@ -1,0 +1,17 @@
+# Allowlist: credentials, .env files, Git, outputs and real QA data never enter COPY.
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!next-env.d.ts
+!postcss.config.mjs
+!src/
+!src/**
+!public/
+!public/**
+!scripts/
+!scripts/check-container-env.mjs
+!scripts/pdf-smoke.mjs
+!scripts/verify-pdf-linux.sh
+!deploy/
+!deploy/container-entrypoint.sh

@@ -1,0 +1,25 @@
+# Merge with compose.yaml. Synthetic PDFs only; no app listener in this job.
+services:
+  app:
+    image: siteen-daily-pdf-verify:${SITEEN_RELEASE:-local}
+    build:
+      target: pdf-verify
+    # Explicit shell also works when the checked-out source has mode 0644.
+    command: [sh, /usr/local/bin/verify-pdf-linux]
+    restart: "no"
+    healthcheck:
+      disable: true
+    # /tmp is tmpfs and disappears when the container stops. Retain QA evidence.
+    volumes:
+      - type: bind
+        source: ./output/qa/linux-pdf
+        target: /tmp/pdf-verification
+        bind:
+          create_host_path: false
+      # Test the current verifier without rebuilding the application for QA edits.
+      - type: bind
+        source: ./scripts/verify-pdf-linux.sh
+        target: /usr/local/bin/verify-pdf-linux
+        read_only: true
+        bind:
+          create_host_path: false

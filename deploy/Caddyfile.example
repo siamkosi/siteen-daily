@@ -1,0 +1,14 @@
+# Host-installed Caddy, in front of the loopback-only Docker port.
+# Set SITE_DOMAIN to your actual domain only when deployment is authorized.
+{$SITE_DOMAIN} {
+    request_body {
+        max_size 33554432
+    }
+    reverse_proxy 127.0.0.1:3000 {
+        transport http {
+            response_header_timeout 60s
+        }
+    }
+    header X-Content-Type-Options nosniff
+    header Referrer-Policy strict-origin-when-cross-origin
+}
