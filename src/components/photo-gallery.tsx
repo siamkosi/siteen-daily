@@ -125,6 +125,11 @@ function GalleryPage({
     "โหลดหรือต่ออายุลิงก์รูปไม่สำเร็จ กรุณาลองใหม่",
   );
   const current = demo ? demoPhotoPage(photos, reports, filters) : value;
+  // Remove cached metadata immediately when the caller confirms lost access.
+  const allowed = new Set(projects.map((p) => p.id));
+  const visiblePhotos = current?.photos.filter((p) =>
+    allowed.has(p.project_id),
+  );
   return (
     <>
       {error && (
@@ -139,7 +144,7 @@ function GalleryPage({
       )}
       {!current && !error && <p role="status">กำลังโหลดรูปหน้านี้…</p>}
       <div className="gallery-grid" aria-busy={!current && !error}>
-        {current?.photos.map((p) => (
+        {visiblePhotos?.map((p) => (
           <Link
             className="gallery-card"
             key={p.id}
@@ -160,7 +165,7 @@ function GalleryPage({
           </Link>
         ))}
       </div>
-      {current && !current.photos.length && (
+      {current && !visiblePhotos?.length && (
         <div className="empty">ไม่พบรูปตามโครงการและช่วงวันที่ที่เลือก</div>
       )}
       <nav className="photo-pagination" aria-label="เปลี่ยนหน้ารูปภาพ">
@@ -173,7 +178,7 @@ function GalleryPage({
         </button>
         <span aria-live="polite">
           หน้า {page + 1}
-          {current ? ` • ${current.photos.length} รูป` : ""}
+          {current ? ` • ${visiblePhotos?.length ?? 0} รูป` : ""}
         </span>
         <button
           className="button secondary"

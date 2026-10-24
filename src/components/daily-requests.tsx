@@ -90,7 +90,7 @@ export function DailyRequests({
   workspace,
   user,
   workspaceName,
-  canEdit,
+  canEditProject,
   id,
   projectId,
   sourceReportId,
@@ -103,7 +103,7 @@ export function DailyRequests({
   workspace: string;
   user: string;
   workspaceName: string;
-  canEdit: boolean;
+  canEditProject: (id: string) => boolean;
   id?: string;
   projectId?: string;
   sourceReportId?: string;
@@ -120,6 +120,20 @@ export function DailyRequests({
   const requests = data.requests ?? [];
   const request = requests.find((r) => r.id === id);
   const activeData = activeDataset(data);
+  const editableProjects = data.projects.filter((p) => canEditProject(p.id));
+  const canEdit = request
+    ? canEditProject(request.project_id)
+    : projectId
+      ? canEditProject(projectId)
+      : editableProjects.length > 0;
+  const documentRole =
+    role === "owner"
+      ? "owner"
+      : request
+        ? canEditProject(request.project_id)
+          ? "editor"
+          : "viewer"
+        : undefined;
   const projects = projectId
     ? data.projects.filter((p) => p.id === projectId)
     : data.projects;
@@ -138,6 +152,8 @@ export function DailyRequests({
             (!projectId || r.project_id === projectId),
         )
       : undefined;
+    if (source && !canEditProject(source.project_id))
+      return <div className="panel">ไม่มีสิทธิ์สร้างคำขอในโครงการต้นฉบับ</div>;
     if (!editing && sourceReportId && !source)
       return (
         <div className="panel">
@@ -186,7 +202,7 @@ export function DailyRequests({
           kind="request"
           initial={editing ? request : undefined}
           prefill={!editing && source ? requestFromReport(source) : undefined}
-          projects={projects}
+          projects={projects.filter((p) => canEditProject(p.id))}
           workspace={workspace}
           user={user}
           save={save}
@@ -214,7 +230,7 @@ export function DailyRequests({
           <DocumentActions
             report={request}
             kind="request"
-            role={role}
+            role={documentRole}
             user={user}
             change={change}
           />
@@ -283,7 +299,7 @@ export function DailyRequests({
         <DocumentActions
           report={request}
           kind="request"
-          role={role}
+          role={documentRole}
           user={user}
           change={change}
         />
@@ -375,7 +391,10 @@ export function DailyRequests({
           </p>
           {data.projects
             .filter(
-              (p) => p.status === "active" && (!filter || p.id === filter),
+              (p) =>
+                canEditProject(p.id) &&
+                p.status === "active" &&
+                (!filter || p.id === filter),
             )
             .map((p) => {
               const latest = latestProjectReport(

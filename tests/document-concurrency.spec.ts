@@ -82,12 +82,24 @@ async function api(
   await page.context().route("**/rest/v1/**", async (route) => {
     const req = route.request(),
       url = new URL(req.url());
+    if (url.pathname.endsWith("/project_memberships"))
+      return route.fulfill({
+        json: [
+          {
+            workspace_id: workspace,
+            user_id: id,
+            project_id: project,
+            role: "editor",
+            row_version: 1,
+          },
+        ],
+      });
     if (url.pathname.endsWith("/memberships"))
       return route.fulfill({
         json: [
           {
             workspace_id: workspace,
-            role: "editor",
+            role: "member",
             workspaces: { id: workspace, name: "Concurrency QA — ข้อมูลสมมติ" },
           },
         ],

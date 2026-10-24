@@ -169,6 +169,7 @@ async function photoApi(page: Page, role: "editor" | "viewer", count = 30) {
   }));
   const state = {
     rows: [] as Photo[],
+    allowedProjects: [...projects],
     queries: [] as URL[],
     signed: [] as string[][],
     removed: [] as string[][],
@@ -203,12 +204,24 @@ async function photoApi(page: Page, role: "editor" | "viewer", count = 30) {
   await page.route("**/rest/v1/**", async (route) => {
     const request = route.request(),
       url = new URL(request.url());
+    if (url.pathname.endsWith("/project_memberships"))
+      return route.fulfill({
+        json: projects
+          .filter((id) => state.allowedProjects.includes(id))
+          .map((id) => ({
+            workspace_id: workspace,
+            user_id: userId,
+            project_id: id,
+            role,
+            row_version: 1,
+          })),
+      });
     if (url.pathname.endsWith("/memberships"))
       return route.fulfill({
         json: [
           {
             workspace_id: workspace,
-            role,
+            role: "member",
             workspaces: { id: workspace, name: "Photo QA — ข้อมูลสมมติ" },
           },
         ],
@@ -216,20 +229,26 @@ async function photoApi(page: Page, role: "editor" | "viewer", count = 30) {
     if (url.pathname.endsWith("/projects")) {
       state.projectReads++;
       return route.fulfill({
-        json: projects.map((id, i) => ({
-          id,
-          workspace_id: workspace,
-          name: `QA project ${i + 1}`,
-          location: "DEV",
-          client: "QA",
-          status: "active",
-          created_at: "2026-10-24T00:00:00Z",
-          cover_path: i === 0 ? state.coverPath : null,
-        })),
+        json: projects
+          .filter((id) => state.allowedProjects.includes(id))
+          .map((id, i) => ({
+            id,
+            workspace_id: workspace,
+            name: `QA project ${i + 1}`,
+            location: "DEV",
+            client: "QA",
+            status: "active",
+            created_at: "2026-10-24T00:00:00Z",
+            cover_path: i === 0 ? state.coverPath : null,
+          })),
       });
     }
     if (url.pathname.endsWith("/daily_reports"))
-      return route.fulfill({ json: documents });
+      return route.fulfill({
+        json: documents.filter((r) =>
+          state.allowedProjects.includes(r.project_id),
+        ),
+      });
     if (url.pathname.endsWith("/rpc/company_photo_storage")) {
       state.usageReads++;
       const usage = projects.map((id, i) => {
@@ -298,7 +317,9 @@ async function photoApi(page: Page, role: "editor" | "viewer", count = 30) {
         status: 500,
         json: { message: "QA photo query unavailable" },
       });
-    let rows = state.rows;
+    let rows = state.rows.filter((p) =>
+      state.allowedProjects.includes(p.project_id),
+    );
     const gallery = url.searchParams.get("select")!.includes("daily_reports");
     if (gallery) {
       expect(url.searchParams.get("daily_reports.deleted_at")).toBe("is.null");
@@ -514,7 +535,7 @@ test("report photos retry safely and roll back both image variants on failed upl
     timeout: 20000,
   });
   expect(state.rows).toHaveLength(1);
-  await expect.poll(() => state.usageReads).toBeGreaterThan(readsBeforeSuccess);
+  expect(state.usageReads).toBe(readsBeforeSuccess); // Members never request company totals.
   await expect(page.locator(".photo-grid img")).toHaveAttribute(
     "src",
     /\.thumb\.jpeg/,
@@ -579,7 +600,7 @@ test("signed gallery previews renew on timer and resume without resetting page o
   await expect(
     page.getByLabel("วันที่รายงาน ถึง", { exact: true }),
   ).toHaveValue("2026-10-22");
-  expect(state.projectReads).toBe(1);
+  expect(state.projectReads).toBeGreaterThan(1);
 });
 
 test("photo and cover renewal keeps the same unsaved report editor mounted", async ({
@@ -782,4 +803,22 @@ test("a photo deletion during renewal queues a fresh read instead of restoring t
   await expect(page.locator(".photo-grid img")).toHaveCount(1);
   expect(state.queries).toHaveLength(reads + 2);
   expect(state.projectReads).toBe(1);
+});
+
+test("focus revocation clears cached gallery thumbnails and captions immediately", async ({
+  page,
+}) => {
+  const state = await photoApi(page, "viewer");
+  await page.goto("/photos");
+  await expect(page.locator(".gallery-card")).toHaveCount(24);
+  await expect(page.getByRole("link", { name: /QA photo 1 / })).toBeVisible();
+  state.allowedProjects = [projects[1]];
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(
+    page
+      .getByRole("combobox", { name: "โครงการ", exact: true })
+      .locator(`option[value="${projects[0]}"]`),
+  ).toHaveCount(0);
+  await expect(page.locator(".gallery-card")).toHaveCount(12);
+  await expect(page.getByRole("link", { name: /QA photo 1 / })).toHaveCount(0);
 });

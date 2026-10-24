@@ -28,8 +28,8 @@ export default function OAuthCallback() {
         if (denied)
           throw new Error(
             denied === "access_denied"
-              ? "ยกเลิกการเข้าสู่ระบบด้วย Google แล้ว คุณสามารถลองใหม่ได้"
-              : "เข้าสู่ระบบด้วย Google ไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแล",
+              ? "ยกเลิกการเข้าสู่ระบบ แล้ว คุณสามารถลองใหม่ได้"
+              : "เข้าสู่ระบบ ไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแล",
           );
         if (initialized.error)
           throw new Error("ยืนยันการเข้าสู่ระบบไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่");
@@ -39,7 +39,7 @@ export default function OAuthCallback() {
         // Validate identity with Auth; a local token by itself grants no access.
         const result = await supabase.auth.getUser();
         if (result.error || !result.data.user)
-          throw new Error("ยืนยันบัญชี Google ไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่");
+          throw new Error("ยืนยันบัญชี ไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่");
         if (alive) {
           sessionStorage.removeItem("site-daily-demo");
           window.location.replace("/dashboard");
@@ -61,7 +61,7 @@ export default function OAuthCallback() {
     <main className="login-form" style={{ minHeight: "100vh" }}>
       <section className="login-card">
         <SiteBrand />
-        <h1>เข้าสู่ระบบด้วย Google</h1>
+        <h1>เข้าสู่ระบบ</h1>
         {error ? (
           <>
             <p className="error" role="alert">

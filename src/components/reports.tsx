@@ -1,10 +1,11 @@
 "use client";
+import type { DocumentRole } from "@/lib/project-access";
 /* eslint-disable @next/next/no-img-element -- Private signed Storage URLs and local demo data URLs. */
 import { useState } from "react";
 import Link from "next/link";
 import { DocumentActions, DocumentHistory } from "./document-lifecycle";
 import type { ChangeDocument } from "@/lib/document-lifecycle";
-import type { DocumentEvent, Workspace } from "@/lib/types";
+import type { DocumentEvent } from "@/lib/types";
 import { useReportPhotos } from "@/lib/use-report-photos";
 import { useRouter } from "next/navigation";
 import {
@@ -381,7 +382,7 @@ export function ReportView({
   ) => Promise<void>;
   removePhoto: (photo: Photo) => Promise<void>;
   dailyRequest?: Report;
-  role?: Workspace["role"];
+  role?: DocumentRole;
   user: string;
   change: ChangeDocument;
   demoEvents?: DocumentEvent[];

@@ -124,7 +124,7 @@ async function fixture(page: Page, role: "owner" | "editor" | "viewer") {
         json: [
           {
             workspace_id: workspace,
-            role,
+            role: role === "owner" ? "owner" : "member",
             workspaces: { id: workspace, name: "Storage QA" },
           },
         ],
@@ -233,6 +233,14 @@ for (const role of ["owner", "editor", "viewer"] as const)
   test(`storage usage and quota permissions as ${role}`, async ({ page }) => {
     const state = await fixture(page, role);
     await page.goto("/storage");
+    if (role !== "owner") {
+      await expect(
+        page.getByText("เฉพาะ Owner ที่ดูพื้นที่รวมของบริษัทได้"),
+      ).toBeVisible();
+      expect(state.reads).toBe(0);
+      expect(state.writes).toHaveLength(0);
+      return;
+    }
     await expect(
       page.getByRole("heading", { name: "พื้นที่จัดเก็บรูป", exact: true }),
     ).toBeVisible();
@@ -313,7 +321,7 @@ for (const role of ["owner", "editor", "viewer"] as const)
 test("storage errors are not reported as zero usage; unknown sizes and wrong company are explicit", async ({
   page,
 }) => {
-  const state = await fixture(page, "viewer");
+  const state = await fixture(page, "owner");
   state.fail = true;
   await page.goto("/storage");
   await expect(page.locator('.error[role="alert"]')).toContainText(

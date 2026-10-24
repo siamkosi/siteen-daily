@@ -54,7 +54,7 @@ export type Photo = {
 export type Workspace = {
   id: string;
   name: string;
-  role: "owner" | "editor" | "viewer";
+  role: "owner" | "member";
 };
 export type Dataset = {
   storage_quota_bytes?: number | null;

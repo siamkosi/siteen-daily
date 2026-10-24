@@ -1,4 +1,5 @@
-import type { Dataset, Report, Workspace } from "./types";
+import type { DocumentRole } from "./project-access";
+import type { Dataset, Report } from "./types";
 export type DocumentKind = "report" | "request";
 export type DocumentAction = "trash" | "restore" | "cancel";
 export type ChangeDocument = (
@@ -27,7 +28,7 @@ export function restoreDeadline(r: Report) {
 }
 export function canTrashDocument(
   r: Report,
-  role: Workspace["role"] | undefined,
+  role: DocumentRole | undefined,
   user: string,
 ) {
   return (

@@ -24,3 +24,21 @@ export async function workspaceRows<T>(
     if (data.length < pageSize) return rows;
   }
 }
+
+// Fetch the complete assignment set: PostgREST's default row cap must not hide grants.
+export async function ownProjectAssignments(user: string) {
+  if (!supabase) throw new Error("Auth not configured");
+  const rows: import("./project-access").ProjectAssignment[] = [];
+  for (let from = 0; ; from += 500) {
+    const r = await supabase
+      .from("project_memberships")
+      .select("workspace_id,user_id,project_id,role,row_version")
+      .eq("user_id", user)
+      .order("workspace_id")
+      .order("project_id")
+      .range(from, from + 499);
+    if (r.error) return { data: null, error: r.error };
+    rows.push(...(r.data ?? []));
+    if ((r.data ?? []).length < 500) return { data: rows, error: null };
+  }
+}

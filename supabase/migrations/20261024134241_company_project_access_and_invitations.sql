@@ -104,11 +104,13 @@ end; $$;
 revoke all on function private.require_company_owner(uuid) from public,anon,authenticated;
 
 create function private.list_project_assignments(target_workspace uuid)
-returns table(user_id uuid,project_id uuid,role text,row_version integer)
+returns jsonb
 language plpgsql security definer set search_path='' as $$
 begin
   perform private.require_company_owner(target_workspace);
-  return query select pm.user_id,pm.project_id,pm.role,pm.row_version from public.project_memberships pm where pm.workspace_id=target_workspace order by pm.user_id,pm.project_id;
+  -- A scalar JSON payload is not silently capped by PostgREST max_rows.
+  return (select coalesce(jsonb_agg(jsonb_build_object('user_id',pm.user_id,'project_id',pm.project_id,'role',pm.role,'row_version',pm.row_version) order by pm.user_id,pm.project_id),'[]'::jsonb)
+    from public.project_memberships pm where pm.workspace_id=target_workspace);
 end; $$;
 create function private.set_project_assignment(target_workspace uuid,target_project uuid,target_user uuid,new_role text,expected_version integer)
 returns void language plpgsql security definer set search_path='' as $$
@@ -177,6 +179,8 @@ declare offer private.company_invitations; attempt private.invitation_send_attem
 begin
   perform private.require_company_owner(target_workspace);
   perform private.confirmed_user_email();
+  -- Serialize this Owner across companies as well as all Owners within a company.
+  perform pg_advisory_xact_lock(hashtextextended('invitation-owner:'||auth.uid()::text,0));
   perform pg_advisory_xact_lock(hashtextextended(target_workspace::text,0));
   select array_agg(distinct p order by p) into selected from unnest(target_projects) p;
   if request_id is null or normalized is null or char_length(normalized)>254 or normalized !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'

@@ -1,4 +1,5 @@
 "use client";
+import type { DocumentRole } from "@/lib/project-access";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Trash2, RotateCcw, Ban } from "lucide-react";
@@ -15,7 +16,6 @@ import {
   type Dataset,
   type DocumentEvent,
   type Report,
-  type Workspace,
   thaiDate,
 } from "@/lib/types";
 
@@ -28,7 +28,7 @@ export function DocumentActions({
 }: {
   report: Report;
   kind: DocumentKind;
-  role?: Workspace["role"];
+  role?: DocumentRole;
   user: string;
   change: ChangeDocument;
 }) {
@@ -306,12 +306,12 @@ export function DocumentHistory({
 
 export function DocumentTrash({
   data,
-  role,
+  roleFor,
   user,
   change,
 }: {
   data: Dataset;
-  role?: Workspace["role"];
+  roleFor: (id: string) => DocumentRole | undefined;
   user: string;
   change: ChangeDocument;
 }) {
@@ -347,7 +347,7 @@ export function DocumentTrash({
           <DocumentActions
             report={report}
             kind={kind}
-            role={role}
+            role={roleFor(report.project_id)}
             user={user}
             change={change}
           />

@@ -12,6 +12,7 @@ export function useStorageUsage(
   user: string,
   demo: boolean,
   data: Dataset,
+  enabled = true,
 ) {
   const [version, setVersion] = useState(0);
   const [result, setResult] = useState<{
@@ -25,7 +26,7 @@ export function useStorageUsage(
   const lastRead = useRef(0);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
   useEffect(() => {
-    if (!workspace || !user || demo || !supabase) return;
+    if (!enabled || !workspace || !user || demo || !supabase) return;
     const controller = new AbortController();
     lastRead.current = Date.now();
     supabase
@@ -51,9 +52,9 @@ export function useStorageUsage(
         }
       });
     return () => controller.abort();
-  }, [workspace, user, demo, scope, key]);
+  }, [workspace, user, demo, scope, key, enabled]);
   useEffect(() => {
-    if (!workspace || !user || demo) return;
+    if (!enabled || !workspace || !user || demo) return;
     const update = () => {
       if (
         document.visibilityState === "visible" &&
@@ -67,15 +68,17 @@ export function useStorageUsage(
       clearInterval(timer);
       window.removeEventListener("focus", update);
     };
-  }, [workspace, user, demo, refresh]);
+  }, [workspace, user, demo, refresh, enabled]);
   return {
-    summary: demo
-      ? demoStorageSummary(data, workspace)
-      : result.scope === scope
-        ? result.summary
-        : null,
-    loading: !demo && !!workspace && !!user && result.key !== key,
-    error: !demo && result.key === key ? result.error : "",
+    summary: !enabled
+      ? null
+      : demo
+        ? demoStorageSummary(data, workspace)
+        : result.scope === scope
+          ? result.summary
+          : null,
+    loading: enabled && !demo && !!workspace && !!user && result.key !== key,
+    error: enabled && !demo && result.key === key ? result.error : "",
     refresh,
   };
 }

@@ -2356,3 +2356,48 @@ td {
   margin: 22px 0;
   padding-top: 16px;
 }
+
+/* Company access administration */
+.invitation-panel,
+.member-grid {
+  min-width: 0;
+}
+.invitation-item {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border, #e4e9e5);
+  overflow-wrap: anywhere;
+}
+.invitation-item h3 {
+  margin-bottom: 0.5rem;
+}
+.invitation-item label,
+.invitation-form label {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.8rem;
+}
+.invitation-form fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.invitation-form .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.invitation-form input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+.audit-details {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+.invitation-item button,
+.invitation-panel button {
+  margin-bottom: 0.5rem;
+  max-width: 100%;
+  white-space: normal;
+}

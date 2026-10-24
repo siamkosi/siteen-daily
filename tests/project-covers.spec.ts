@@ -47,12 +47,24 @@ for (const role of ["editor", "viewer"] as const)
     );
     await page.route("**/rest/v1/**", (route) => {
       const url = new URL(route.request().url());
+      if (url.pathname.endsWith("/project_memberships"))
+        return route.fulfill({
+          json: [
+            {
+              workspace_id: workspace,
+              user_id: userId,
+              project_id: project,
+              role: role,
+              row_version: 1,
+            },
+          ],
+        });
       if (url.pathname.endsWith("/memberships"))
         return route.fulfill({
           json: [
             {
               workspace_id: workspace,
-              role,
+              role: "member",
               workspaces: { id: workspace, name: "Cover QA" },
             },
           ],

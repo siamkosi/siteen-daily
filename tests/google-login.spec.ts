@@ -28,7 +28,7 @@ async function appApi(page: Page, role: "owner" | "editor" | null = "owner") {
           ? [
               {
                 workspace_id: company,
-                role,
+                role: role === "owner" ? "owner" : "member",
                 workspaces: { id: company, name: "27 วิศวกรรม — ข้อมูลสมมติ" },
               },
             ]
@@ -137,7 +137,7 @@ for (const role of ["owner", "editor", null] as const) {
       ).toHaveValue(company);
       await expect(page.locator(".profile")).toContainText(user.email);
       await expect(page.locator(".profile")).toContainText(
-        role === "owner" ? "เจ้าของบริษัท" : "วิศวกร / ผู้บันทึก",
+        role === "owner" ? "เจ้าของบริษัท" : "สมาชิก • สิทธิ์ตามโครงการ",
       );
     } else {
       await expect(

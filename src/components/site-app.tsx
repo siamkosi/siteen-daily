@@ -32,7 +32,7 @@ import {
   documentSaveError,
   requireDocumentVersion,
 } from "@/lib/document-concurrency";
-import { workspaceRows } from "@/lib/data";
+import { ownProjectAssignments, workspaceRows } from "@/lib/data";
 import { DEMO_USER, DEMO_WORKSPACE, loadDemo, saveDemo } from "@/lib/demo";
 import {
   Dataset,
@@ -48,6 +48,8 @@ import { ReportForm, ReportView } from "./reports";
 import { PhotoGallery } from "./photo-gallery";
 import { preparePhoto, photoDataUrl } from "@/lib/prepare-photo";
 import { storePreparedPhoto } from "@/lib/photos";
+import { PendingInvitations } from "./pending-invitations";
+import { projectRole, type ProjectAssignment } from "@/lib/project-access";
 import { CompanyMembers } from "./company-members";
 import { workspacePreference } from "@/lib/workspace-preference";
 import { DailyRequests, DailyDocuments } from "./daily-requests";
@@ -99,14 +101,31 @@ export default function SiteApp() {
   const requestVersion = useRef(0);
   const authIdentity = useRef<string | null>(null);
   const active = workspaces.find((w) => w.id === workspace);
-  const canEdit = active?.role === "owner" || active?.role === "editor";
+  const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
+  const isOwner = active?.role === "owner";
+  const roleFor = (id: string) =>
+    projectRole(
+      active,
+      rawData.projects.find((p) => p.id === id),
+      assignments,
+    );
+  const canEditProject = (id: string) =>
+    ["owner", "editor"].includes(roleFor(id) ?? "");
+  const editableProjects = rawData.projects.filter((p) => canEditProject(p.id));
+  const canEdit = editableProjects.length > 0;
   const coverImages = useProjectCovers(
     rawData.projects,
     `${user?.id ?? ""}:${user?.last_sign_in_at ?? ""}:${workspace}`,
     !demo && !!user && !!workspace,
   );
   const data = { ...rawData, projects: coverImages.projects };
-  const storage = useStorageUsage(workspace, user?.id ?? "", demo, data);
+  const storage = useStorageUsage(
+    workspace,
+    user?.id ?? "",
+    demo,
+    data,
+    isOwner,
+  );
   const enterDemo = useCallback(() => {
     try {
       const snapshot = loadDemo();
@@ -145,6 +164,7 @@ export default function SiteApp() {
       if (authIdentity.current !== (next?.id ?? null)) {
         requestVersion.current++;
         setData(empty);
+        setAssignments([]);
         setWorkspace("");
         setWorkspaces([]);
         authIdentity.current = next?.id ?? null;
@@ -180,11 +200,42 @@ export default function SiteApp() {
   }, [enterDemo]);
   const loadWorkspaces = useCallback(async () => {
     if (!supabase || !user || demo) return;
-    const { data, error } = await supabase
-      .from("memberships")
-      .select("workspace_id, role, workspaces(id,name)")
-      .eq("user_id", user.id);
-    if (error) throw error;
+    const [memberships, grants] = await Promise.all([
+      supabase
+        .from("memberships")
+        .select("workspace_id, role, workspaces(id,name)")
+        .eq("user_id", user.id),
+      ownProjectAssignments(user.id),
+    ]);
+    if (authIdentity.current !== user.id) return;
+    if (memberships.error || grants.error) {
+      setAssignments([]);
+      setData(empty);
+      throw new Error("ตรวจสิทธิ์ไม่สำเร็จ กรุณาโหลดใหม่");
+    }
+    const data = memberships.data;
+    setAssignments(grants.data ?? []);
+    const owners = new Set(
+      (memberships.data ?? [])
+        .filter((m) => m.role === "owner")
+        .map((m) => m.workspace_id),
+    );
+    const ids = new Set(
+      (grants.data ?? [])
+        .filter((a) => a.role !== null)
+        .map((a) => a.project_id),
+    );
+    const visible = (project: string, company: string) =>
+      owners.has(company) || ids.has(project);
+    setData((old) => ({
+      ...old,
+      projects: old.projects.filter((p) => visible(p.id, p.workspace_id)),
+      reports: old.reports.filter((r) => visible(r.project_id, r.workspace_id)),
+      requests: old.requests?.filter((r) =>
+        visible(r.project_id, r.workspace_id),
+      ),
+      photos: old.photos.filter((p) => visible(p.project_id, p.workspace_id)),
+    }));
     if (authIdentity.current !== user.id) return;
     const list = (data ?? []).map((m) => ({
       ...(m.workspaces as unknown as { id: string; name: string }),
@@ -205,30 +256,37 @@ export default function SiteApp() {
   }, [user, demo]);
   useEffect(() => {
     // Synchronize company membership with the authenticated external session.
+    // Async external permission synchronization; state changes follow network reads.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadWorkspaces().catch((e) => setError(e.message));
   }, [loadWorkspaces]);
-  const reload = useCallback(async () => {
-    if (!supabase || demo || !workspace || !user) return;
-    const version = ++requestVersion.current;
-    setLoading(true);
-    setData(empty);
-    try {
-      const [projects, reports, requests] = await Promise.all([
-        workspaceRows<Project>("projects", workspace),
-        workspaceRows<Report>("daily_reports", workspace),
-        workspaceRows<Report>("daily_requests", workspace),
-      ]);
-      if (version !== requestVersion.current) return;
-      setData({
-        projects,
-        reports,
-        photos: [],
-        requests,
-      });
-    } finally {
-      if (version === requestVersion.current) setLoading(false);
-    }
-  }, [workspace, demo, user]);
+  const reload = useCallback(
+    async (quiet = false) => {
+      if (!supabase || demo || !workspace || !user) return;
+      const version = ++requestVersion.current;
+      if (!quiet) {
+        setLoading(true);
+        setData(empty);
+      }
+      try {
+        const [projects, reports, requests] = await Promise.all([
+          workspaceRows<Project>("projects", workspace),
+          workspaceRows<Report>("daily_reports", workspace),
+          workspaceRows<Report>("daily_requests", workspace),
+        ]);
+        if (version !== requestVersion.current) return;
+        setData({
+          projects,
+          reports,
+          photos: [],
+          requests,
+        });
+      } finally {
+        if (version === requestVersion.current) setLoading(false);
+      }
+    },
+    [workspace, demo, user],
+  );
   useEffect(() => {
     // Fetching a different tenant resets loading/data before the request begins.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -240,6 +298,23 @@ export default function SiteApp() {
     };
   }, [reload]);
   useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible")
+        void loadWorkspaces()
+          .then(() => reload(true))
+          .catch((e) => {
+            setData(empty);
+            setError(e.message);
+          });
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadWorkspaces, reload]);
+  useEffect(() => {
     if (ready && !user && path !== "/login") router.replace("/login");
     if (ready && user && (path === "/" || path === "/login"))
       router.replace("/dashboard");
@@ -249,6 +324,13 @@ export default function SiteApp() {
     setData(next);
   }
   async function saveProject(p: Project) {
+    if (
+      p.workspace_id !== workspace ||
+      (data.projects.some((x) => x.id === p.id)
+        ? !canEditProject(p.id)
+        : !isOwner)
+    )
+      throw new Error("ไม่มีสิทธิ์จัดการโครงการนี้");
     if (demo)
       changeDemo({
         ...data,
@@ -276,7 +358,7 @@ export default function SiteApp() {
   }
   async function saveProjectCover(p: Project, file: File | null) {
     if (
-      !canEdit ||
+      !canEditProject(p.id) ||
       p.workspace_id !== workspace ||
       !data.projects.some((x) => x.id === p.id)
     )
@@ -332,7 +414,7 @@ export default function SiteApp() {
     await reload();
   }
   async function saveReport(r: Report) {
-    if (!canEdit || r.workspace_id !== workspace)
+    if (!canEditProject(r.project_id) || r.workspace_id !== workspace)
       throw new Error("ไม่มีสิทธิ์แก้ไขรายงานในบริษัทนี้");
     if (
       data.reports.some(
@@ -375,7 +457,7 @@ export default function SiteApp() {
     }
   }
   async function saveRequest(r: Report) {
-    if (!canEdit || r.workspace_id !== workspace)
+    if (!canEditProject(r.project_id) || r.workspace_id !== workspace)
       throw new Error("ไม่มีสิทธิ์แก้ไขคำขอในบริษัทนี้");
     const requests = data.requests ?? [];
     if (
@@ -489,7 +571,11 @@ export default function SiteApp() {
     action,
     reason,
   ) => {
-    if (!user || !canEdit || document.workspace_id !== workspace)
+    if (
+      !user ||
+      !canEditProject(document.project_id) ||
+      document.workspace_id !== workspace
+    )
       throw new Error("ไม่มีสิทธิ์จัดการเอกสารนี้");
     if (demo) {
       const latest = loadDemo();
@@ -510,6 +596,8 @@ export default function SiteApp() {
         action === "restore" &&
         (!owner ||
           !current.deleted_at ||
+          // Read the clock only when executing the lifecycle action.
+          // eslint-disable-next-line react-hooks/purity
           Date.now() >= new Date(current.deleted_at).getTime() + 30 * 86400000)
       )
         throw new Error("กู้คืนไม่ได้: ต้องเป็น Owner และยังไม่ครบ 30 วัน");
@@ -702,25 +790,27 @@ export default function SiteApp() {
           ))}
         </select>
         <nav>
-          {nav.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              onClick={() => setMobile(false)}
-              className={
-                path === n.href ||
-                (n.href === "/reports" && path.startsWith("/reports/"))
-                  ? "nav-item selected"
-                  : "nav-item"
-              }
-            >
-              <n.icon size={20} />
-              {n.label}
-              {n.href === "/reports" && (
-                <span className="nav-count">{activeData.reports.length}</span>
-              )}
-            </Link>
-          ))}
+          {nav
+            .filter((n) => n.href !== "/storage" || isOwner)
+            .map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                onClick={() => setMobile(false)}
+                className={
+                  path === n.href ||
+                  (n.href === "/reports" && path.startsWith("/reports/"))
+                    ? "nav-item selected"
+                    : "nav-item"
+                }
+              >
+                <n.icon size={20} />
+                {n.label}
+                {n.href === "/reports" && (
+                  <span className="nav-count">{activeData.reports.length}</span>
+                )}
+              </Link>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="tip">
@@ -735,11 +825,7 @@ export default function SiteApp() {
             <div>
               <b>{demo ? "วิศวกรสยาม" : user.email}</b>
               <small>
-                {active?.role === "viewer"
-                  ? "ผู้ดูข้อมูล"
-                  : active?.role === "owner"
-                    ? "เจ้าของบริษัท"
-                    : "วิศวกร / ผู้บันทึก"}
+                {isOwner ? "เจ้าของบริษัท" : "สมาชิก • สิทธิ์ตามโครงการ"}
               </small>
             </div>
             <button
@@ -790,6 +876,16 @@ export default function SiteApp() {
               </button>
             </div>
           )}
+          {!demo && (
+            <PendingInvitations
+              key={user.id}
+              onAccepted={async (id) => {
+                await loadWorkspaces();
+                setWorkspace(id);
+                sessionStorage.setItem(`site-daily-workspace:${user.id}`, id);
+              }}
+            />
+          )}
           {loading ? (
             <div role="status" className="panel">
               กำลังโหลดข้อมูล…
@@ -798,7 +894,7 @@ export default function SiteApp() {
             <WorkspaceSetup onCreated={loadWorkspaces} />
           ) : (
             <>
-              {path !== "/storage" && (
+              {isOwner && path !== "/storage" && (
                 <StorageWarning
                   summary={storage.summary}
                   error={storage.error}
@@ -818,7 +914,8 @@ export default function SiteApp() {
                 <Projects
                   data={activeData}
                   workspace={workspace}
-                  canEdit={canEdit}
+                  canEdit={isOwner}
+                  canEditProject={canEditProject}
                   save={saveProject}
                   saveCover={saveProjectCover}
                   onCoverError={coverImages.imageError}
@@ -831,7 +928,7 @@ export default function SiteApp() {
                   workspace={workspace}
                   user={user.id}
                   workspaceName={active?.name ?? ""}
-                  canEdit={canEdit}
+                  canEditProject={canEditProject}
                   id={path.split("/")[2]}
                   projectId={searchParams.get("project") ?? undefined}
                   sourceReportId={searchParams.get("fromReport") ?? undefined}
@@ -851,7 +948,9 @@ export default function SiteApp() {
                 />
               )}
               {reportId === "new" &&
-                (canEdit ? (
+                (canEdit &&
+                (!sourceReport || canEditProject(sourceReport.project_id)) &&
+                (!requestSource || canEditProject(requestSource.project_id)) ? (
                   requestSourceId && !requestSource ? (
                     <div className="panel">
                       ไม่พบ Daily Request ต้นฉบับในบริษัทนี้
@@ -891,7 +990,7 @@ export default function SiteApp() {
                           ? reportFromRequest(requestSource)
                           : undefined
                       }
-                      projects={data.projects}
+                      projects={editableProjects}
                       workspace={workspace}
                       user={user.id}
                       save={saveReport}
@@ -922,8 +1021,11 @@ export default function SiteApp() {
                     photos={data.photos.filter(
                       (p) => p.report_id === report.id,
                     )}
-                    canEdit={canEdit && isActiveDocument(report)}
-                    role={active?.role}
+                    canEdit={
+                      canEditProject(report.project_id) &&
+                      isActiveDocument(report)
+                    }
+                    role={roleFor(report.project_id)}
                     user={user.id}
                     change={changeDocument}
                     demoEvents={demo ? (data.document_events ?? []) : undefined}
@@ -1019,7 +1121,10 @@ export default function SiteApp() {
                     description="หลักฐานความคืบหน้า เชื่อมโยงกับรายงานทุกภาพ"
                   />
                   <PhotoGallery
-                    key={`${workspace}:${user.id}`}
+                    key={`${workspace}:${user.id}:${data.projects
+                      .map((p) => p.id)
+                      .sort()
+                      .join(",")}`}
                     workspace={workspace}
                     demo={demo}
                     photos={activeData.photos}
@@ -1031,26 +1136,31 @@ export default function SiteApp() {
               {path === "/trash" && (
                 <DocumentTrash
                   data={data}
-                  role={active?.role}
+                  roleFor={roleFor}
                   user={user.id}
                   change={changeDocument}
                 />
               )}
-              {path === "/storage" && (
-                <StorageUsagePage
-                  key={`${workspace}:${user.id}`}
-                  workspace={workspace}
-                  role={active?.role}
-                  summary={storage.summary}
-                  loading={storage.loading}
-                  error={storage.error}
-                  refresh={storage.refresh}
-                  demo={demo}
-                  saveDemoQuota={(quota) =>
-                    changeDemo({ ...data, storage_quota_bytes: quota })
-                  }
-                />
-              )}
+              {path === "/storage" &&
+                (isOwner ? (
+                  <StorageUsagePage
+                    key={`${workspace}:${user.id}`}
+                    workspace={workspace}
+                    role={active?.role}
+                    summary={storage.summary}
+                    loading={storage.loading}
+                    error={storage.error}
+                    refresh={storage.refresh}
+                    demo={demo}
+                    saveDemoQuota={(quota) =>
+                      changeDemo({ ...data, storage_quota_bytes: quota })
+                    }
+                  />
+                ) : (
+                  <div className="panel">
+                    เฉพาะ Owner ที่ดูพื้นที่รวมของบริษัทได้
+                  </div>
+                ))}
               {path === "/settings" && (
                 <>
                   <PageHeading
@@ -1065,7 +1175,7 @@ export default function SiteApp() {
                         ? "โหมดทดลอง ยังไม่ได้เชื่อมฐานข้อมูลจริง"
                         : "Supabase Auth + RLS + Private Storage"}
                     </p>
-                    <p>การเพิ่มสมาชิกใหม่ยังต้องให้ผู้ดูแลระบบดำเนินการ</p>
+                    <p>Owner เชิญสมาชิกและมอบหมายโครงการได้ในหน้านี้</p>
                     <WorkspaceSetup
                       onCreated={loadWorkspaces}
                       disabled={demo}
@@ -1076,6 +1186,8 @@ export default function SiteApp() {
                       key={`${user.id}:${workspace}`}
                       workspace={workspace}
                       workspaceName={active.name}
+                      projects={data.projects}
+                      onChanged={loadWorkspaces}
                     />
                   )}
                   {!demo && active?.role !== "owner" && (
@@ -1524,6 +1636,7 @@ function Projects({
   data,
   workspace,
   canEdit,
+  canEditProject,
   save,
   saveCover,
   onCoverError,
@@ -1532,6 +1645,7 @@ function Projects({
   workspace: string;
   canEdit: boolean;
   save: (p: Project) => Promise<void>;
+  canEditProject: (id: string) => boolean;
   saveCover: (p: Project, file: File | null) => Promise<void>;
   onCoverError: () => void;
 }) {
@@ -1609,7 +1723,7 @@ function Projects({
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      {canEdit && coverProject && (
+      {coverProject && canEditProject(coverProject.id) && (
         <ProjectCoverEditor
           key={coverProject.id}
           project={coverProject}
@@ -1628,7 +1742,7 @@ function Projects({
                 index={i}
                 onCoverError={onCoverError}
               />
-              {canEdit && (
+              {canEditProject(p.id) && (
                 <button
                   type="button"
                   className="button secondary project-cover-settings"
@@ -1641,7 +1755,7 @@ function Projects({
                   ตั้งค่ารูปโครงการ
                 </button>
               )}
-              {canEdit && (
+              {canEditProject(p.id) && (
                 <button
                   className="text-button"
                   disabled={busy}

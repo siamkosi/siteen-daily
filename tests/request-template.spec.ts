@@ -5,6 +5,8 @@ import { installPdfExportFixture } from "./pdf-fixture";
 test("latest project report seeds only a new editable request; source is unchanged", async ({
   page,
 }) => {
+  // Full form + print layout + real local PDF renderer, consistent with other workflows.
+  test.setTimeout(60000);
   const workspace = "11111111-1111-4111-8111-111111111111";
   const project = "33333333-3333-4333-8333-333333333333";
   const latest = "77777777-7777-4777-8777-777777777777";
