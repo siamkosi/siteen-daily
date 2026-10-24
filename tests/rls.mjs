@@ -8,7 +8,7 @@ let checks = 0;
 await db.exec(
   `create role anon nologin;create role authenticated nologin;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text references storage.buckets(id),name text);alter table storage.objects enable row level security;grant usage on schema public,storage to authenticated;grant select,insert,update,delete on storage.objects to authenticated;`,
 );
-await db.exec("alter table auth.users add column email text;");
+await db.exec("alter table auth.users add column email text,add column email_confirmed_at timestamptz default now(),add column is_anonymous boolean default false;");
 await db.exec("alter table storage.objects add column metadata jsonb;");
 for (const name of readdirSync("supabase/migrations")
   .filter((n) => n.endsWith(".sql"))
@@ -48,7 +48,7 @@ const workspaceB = await as(other, async () => {
   return r.rows[0].id;
 });
 await db.exec(
-  `insert into public.memberships values('${workspace}','${viewer}','viewer');`,
+  `insert into public.memberships values('${workspace}','${viewer}','member');`,
 );
 const project = "20000000-0000-4000-8000-000000000001",
   projectB = "20000000-0000-4000-8000-000000000002",
@@ -111,6 +111,7 @@ await as(owner, async () => {
   assert.equal(moved.rows.length, 0);
   checks++;
 });
+await as(owner, () => db.exec(`select public.set_project_assignment('${workspace}','${project}','${viewer}','viewer',0)`));
 await as(viewer, async () => {
   await count("projects", 1);
   await count("daily_reports", 1);
@@ -147,8 +148,9 @@ await db.exec("reset role");
 // A member of two workspaces can edit a teammate's report, but cannot
 // reparent an existing report or spoof the author of a new report.
 await db.exec(
-  `insert into public.memberships values('${workspace}','${other}','editor');`,
+  `insert into public.memberships values('${workspace}','${other}','member');`,
 );
+await as(owner, () => db.exec(`select public.set_project_assignment('${workspace}','${project}','${other}','editor',0)`));
 await as(other, async () => {
   await count("projects", 2);
   await db.exec(
@@ -262,7 +264,7 @@ await as(owner, async () => {
   checks++;
   assert.ok(
     members.rows.some(
-      (m) => m.email === "other@example.test" && m.role === "editor",
+      (m) => m.email === "other@example.test" && m.role === "member",
     ),
   );
   checks++;
@@ -287,11 +289,11 @@ await as(owner, async () => {
     `select public.set_company_member_role('${workspace}','${other}','viewer',null)`,
   );
   await db.exec(
-    `select public.set_company_member_role('${workspace}','${other}','viewer','editor')`,
+    `select public.set_project_assignment('${workspace}','${project}','${other}','viewer',1)`,
   );
   checks++;
   await denied(
-    `select public.set_company_member_role('${workspace}','${other}','editor','editor')`,
+    `select public.set_company_member_role('${workspace}','${other}','member','editor')`,
   );
 });
 await as(other, async () => {
@@ -300,7 +302,7 @@ await as(other, async () => {
     `select public.set_company_member_role('${workspace}','${viewer}','editor','viewer')`,
   );
   await denied(
-    `select private.change_company_member_role('${workspace}','${other}','editor','viewer')`,
+    `select private.change_company_member_role('${workspace}','${other}','member','viewer')`,
   );
   await denied(
     `update public.memberships set role='owner' where user_id='${other}'`,
@@ -314,12 +316,12 @@ await as(other, async () => {
 await as(viewer, async () => {
   await denied(`select public.list_company_members('${workspace}')`);
   await denied(
-    `select public.set_company_member_role('${workspace}','${other}','editor','viewer')`,
+    `select public.set_company_member_role('${workspace}','${other}','member','viewer')`,
   );
 });
 await as(owner, async () => {
   await db.exec(
-    `select public.set_company_member_role('${workspace}','${other}','editor','viewer')`,
+    `select public.set_project_assignment('${workspace}','${project}','${other}','editor',2)`,
   );
   checks++;
 });
@@ -445,8 +447,9 @@ await as(other, async () => {
   );
 });
 await db.exec(
-  `insert into public.memberships values('${workspace}','${other}','editor')`,
+  `insert into public.memberships values('${workspace}','${other}','member')`,
 );
+await as(owner, () => db.exec(`select public.set_project_assignment('${workspace}','${project}','${other}','editor',0)`));
 await as(other, async () => {
   await count("storage.objects", 1);
   await db.exec(
@@ -946,7 +949,7 @@ await as(owner, async () => {
     orphan = `${storageWorkspace}/${sp2}/${sr2}/${crypto.randomUUID()}.jpeg`,
     unknown = `${storageWorkspace}/missing-project/${crypto.randomUUID()}.jpeg`;
   await db.exec(
-    `insert into public.memberships values('${storageWorkspace}','${other}','editor'),('${storageWorkspace}','${viewer}','viewer')`,
+    `insert into public.memberships values('${storageWorkspace}','${other}','member'),('${storageWorkspace}','${viewer}','member')`,
   );
   await as(owner, async () => {
     await db.exec(`insert into public.projects(id,workspace_id,name) values('${sp1}','${storageWorkspace}','หนึ่ง'),('${sp2}','${storageWorkspace}','สอง'),('${sp0}','${storageWorkspace}','ยังไม่มีรูป');
@@ -1026,7 +1029,7 @@ await as(owner, async () => {
       [storageWorkspace, sr2, stamp],
     );
   });
-  for (const member of [owner, other, viewer]) {
+  for (const member of [owner]) {
     usage = await storageSummary(member);
     assert.equal(usage.totals.total_bytes, 800000);
     assert.equal(usage.totals.trash_bytes, 550000);
@@ -1048,7 +1051,7 @@ await as(owner, async () => {
     );
     checks++;
   });
-  for (const unauthorized of [outsider])
+  for (const unauthorized of [other, viewer, outsider])
     await as(unauthorized, async () => {
       await denied(
         `select public.company_photo_storage('${storageWorkspace}')`,
@@ -1076,7 +1079,7 @@ await as(owner, async () => {
       `select public.set_company_photo_quota('${storageWorkspace}',2000000,null)`,
     );
   });
-  assert.equal((await storageSummary(viewer)).quota_bytes, 1000000);
+  assert.equal((await storageSummary(owner)).quota_bytes, 1000000);
   checks++;
   for (const unauthorized of [other, viewer, outsider])
     await as(unauthorized, async () => {
@@ -1119,7 +1122,7 @@ await as(owner, async () => {
         .rows[0].id,
   );
   await db.query(
-    `insert into public.memberships values($1,$2,'editor'),($1,$3,'viewer')`,
+    `insert into public.memberships values($1,$2,'member'),($1,$3,'member')`,
     [ws, other, viewer],
   );
   const p = (
@@ -1130,6 +1133,7 @@ await as(owner, async () => {
       ),
     )
   ).rows[0].id;
+  await as(owner, () => db.exec(`select public.set_project_assignment('${ws}','${p}','${other}','editor',0);select public.set_project_assignment('${ws}','${p}','${viewer}','viewer',0)`));
   for (const kind of ["report", "request"]) {
     const table = kind === "report" ? "daily_reports" : "daily_requests";
     const id = (

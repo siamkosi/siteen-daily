@@ -1,6 +1,6 @@
 # Company invitations and project access
 
-Status: proposed design, awaiting human approval. No product implementation, hosted migration, deployment, real invitations, or membership changes are authorized by this document alone.
+Status: approved by the human on 2026-10-24 for local development through verification. Hosted migration, deployment, real invitations, and live membership changes remain out of scope.
 
 ## สรุปสำหรับตรวจแบบ
 
@@ -12,7 +12,7 @@ Status: proposed design, awaiting human approval. No product implementation, hos
 - เมื่อเปิดใช้ในอนาคต สมาชิก Editor/Viewer เดิมต้องได้รับมอบหมายโครงการจาก Owner ก่อน ไม่ให้สิทธิ์ทุกโครงการอัตโนมัติ และไม่ลบข้อมูลเดิม
 - รอบนี้พัฒนาและทดสอบในเครื่องเท่านั้น ไม่ deploy ไม่ย้ายฐานข้อมูลเว็บจริง ไม่ส่งคำเชิญจริง และไม่เปลี่ยนสิทธิ์สมาชิกจริง
 
-Builder review: completed; no material unanswered questions identified. Human approval is still pending.
+Builder review: completed; no material unanswered questions identified. Human approved the design and continuous inline execution without another plan approval.
 
 ## Intent and confirmed requirements
 
