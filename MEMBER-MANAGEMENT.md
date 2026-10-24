@@ -1,3 +1,5 @@
+> Current production behavior (2026-10-24): company roles are Owner/Member; Editor/Viewer are per-project assignments. Owners can invite by email and manage project grants. See [current rollout notes](docs/company-invitations-rollout.md). The records below describe the earlier company-wide role model and authorized role transfer before this release.
+
 # Company member management — 24 October 2026
 
 Owner can open **บริษัทและการตั้งค่า → จัดการสมาชิก** for the selected company, including 27 วิศวกรรม, and see member emails/roles. Each non-owner row offers editor → viewer or viewer → editor, followed by an explicit confirmation showing email, company, old/new role and effect. Cancel sends no mutation. Owner rows are immutable. No account creation, invitations, additions or removals.
