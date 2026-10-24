@@ -63,3 +63,9 @@ export function loadDemo(): Dataset {
 export function saveDemo(data: Dataset) {
   localStorage.setItem(key, JSON.stringify(data));
 }
+
+// Sample workspaces are available only on the developer's loopback host.
+// Real workspace access is always enforced independently by Auth and RLS.
+export function isLocalDemoHost(hostname: string) {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname);
+}

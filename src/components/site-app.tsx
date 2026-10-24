@@ -33,7 +33,13 @@ import {
   requireDocumentVersion,
 } from "@/lib/document-concurrency";
 import { ownProjectAssignments, workspaceRows } from "@/lib/data";
-import { DEMO_USER, DEMO_WORKSPACE, loadDemo, saveDemo } from "@/lib/demo";
+import {
+  DEMO_USER,
+  DEMO_WORKSPACE,
+  loadDemo,
+  saveDemo,
+  isLocalDemoHost,
+} from "@/lib/demo";
 import {
   Dataset,
   Project,
@@ -126,7 +132,10 @@ export default function SiteApp() {
     data,
     isOwner,
   );
+  const demoAvailable =
+    typeof window !== "undefined" && isLocalDemoHost(window.location.hostname);
   const enterDemo = useCallback(() => {
+    if (!isLocalDemoHost(window.location.hostname)) return;
     try {
       const snapshot = loadDemo();
       setDemo(true);
@@ -146,7 +155,9 @@ export default function SiteApp() {
     setReady(true);
   }, []);
   useEffect(() => {
-    if (sessionStorage.getItem("site-daily-demo") === "true") {
+    const localDemo = isLocalDemoHost(window.location.hostname);
+    if (!localDemo) sessionStorage.removeItem("site-daily-demo");
+    if (localDemo && sessionStorage.getItem("site-daily-demo") === "true") {
       // Initial synchronization with browser storage after server rendering.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       enterDemo();
@@ -713,11 +724,15 @@ export default function SiteApp() {
   if (!user)
     return (
       <Login
-        onDemo={() => {
-          sessionStorage.setItem("site-daily-demo", "true");
-          enterDemo();
-          router.push("/dashboard");
-        }}
+        onDemo={
+          demoAvailable
+            ? () => {
+                sessionStorage.setItem("site-daily-demo", "true");
+                enterDemo();
+                router.push("/dashboard");
+              }
+            : undefined
+        }
       />
     );
   const reportId = path.startsWith("/reports/") ? path.split("/")[2] : null;
@@ -1230,7 +1245,7 @@ export default function SiteApp() {
   );
 }
 
-function Login({ onDemo }: { onDemo: () => void }) {
+function Login({ onDemo }: { onDemo?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [signup, setSignup] = useState(false);
@@ -1357,17 +1372,21 @@ function Login({ onDemo }: { onDemo: () => void }) {
           >
             {signup ? "มีบัญชีแล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สร้างบัญชี"}
           </button>
-          <div className="divider">หรือเริ่มสำรวจการทำงาน</div>
-          <button
-            className="button secondary w-full"
-            disabled={busy}
-            onClick={onDemo}
-          >
-            ทดลองใช้งานด้วยข้อมูลตัวอย่าง <ArrowUpRight size={18} />
-          </button>
-          <small className="muted block mt-4">
-            ไม่ต้องสมัคร • ข้อมูลทดลองเก็บเฉพาะเบราว์เซอร์นี้
-          </small>
+          {onDemo && (
+            <>
+              <div className="divider">หรือเริ่มสำรวจการทำงาน</div>
+              <button
+                className="button secondary w-full"
+                disabled={busy}
+                onClick={onDemo}
+              >
+                ทดลองใช้งานด้วยข้อมูลตัวอย่าง <ArrowUpRight size={18} />
+              </button>
+              <small className="muted block mt-4">
+                ไม่ต้องสมัคร • ข้อมูลทดลองเก็บเฉพาะเบราว์เซอร์นี้
+              </small>
+            </>
+          )}
         </div>
       </section>
     </div>
