@@ -315,9 +315,7 @@ test("Company member has no removal controls or preview request", async ({
   const state = await removalFixture(page, "member");
   await page.goto("/settings");
   await expect(
-    page.getByText(
-      "เฉพาะ owner ของบริษัทนี้ที่ดูรายชื่อและจัดการบทบาทสมาชิกได้",
-    ),
+    page.getByText("เฉพาะ Owner ที่เข้าถึงบริษัทและการตั้งค่าได้"),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /นำ .* ออกจากบริษัท/ }),

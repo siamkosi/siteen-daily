@@ -4,6 +4,9 @@ test("Owner assigns project roles and revokes access", async ({ page }) => {
   const state = await companyFixture(page);
   await page.goto("/settings");
   await expect(
+    page.getByRole("link", { name: "บริษัทและการตั้งค่า", exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByRole("heading", { name: "จัดการสมาชิก — 27 วิศวกรรม" }),
   ).toBeVisible();
   const select = page.getByLabel("สิทธิ์ engineer@example.test — Hampton");
@@ -49,23 +52,73 @@ test("Owner reviews invitation before send and can resend/cancel", async ({
   await page.getByRole("button", { name: "ยืนยันยกเลิกคำเชิญ" }).click();
   await expect(page.getByText("cancelled", { exact: true })).toBeVisible();
 });
-test("Member has no Owner controls or global storage request", async ({
+for (const projectRole of ["editor", "viewer"])
+  test(`Project ${projectRole} has no settings menu or direct settings access`, async ({
+    page,
+  }) => {
+    const state = await companyFixture(page, "member");
+    state.assignment = projectRole;
+    let storageCalls = 0;
+    page.on("request", (r) => {
+      if (r.url().includes("rpc/company_photo_storage")) storageCalls++;
+    });
+    await page.goto("/settings");
+    await expect(
+      page.getByText("เฉพาะ Owner ที่เข้าถึงบริษัทและการตั้งค่าได้", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "บริษัทและการตั้งค่า", exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByLabel("ชื่อบริษัท", { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "จัดการสมาชิก — 27 วิศวกรรม" }),
+    ).toHaveCount(0);
+    await expect(page.getByLabel("อีเมลผู้รับคำเชิญ")).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: "พื้นที่จัดเก็บรูป", exact: true }),
+    ).toHaveCount(0);
+    expect(storageCalls).toBe(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "เปิดเมนู", exact: true }).click();
+    await expect(
+      page.getByRole("link", { name: "บริษัทและการตั้งค่า", exact: true }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: `test-results/qa/settings-hidden-${projectRole}-mobile.png`,
+      fullPage: true,
+    });
+  });
+
+test("Settings closes immediately when refreshed company role loses Owner", async ({
   page,
 }) => {
-  await companyFixture(page, "member");
-  let storageCalls = 0;
-  page.on("request", (r) => {
-    if (r.url().includes("rpc/company_photo_storage")) storageCalls++;
-  });
+  const state = await companyFixture(page);
   await page.goto("/settings");
   await expect(
-    page.getByRole("heading", { name: "จัดการสมาชิก — 27 วิศวกรรม" }),
-  ).toHaveCount(0);
-  await expect(page.getByLabel("อีเมลผู้รับคำเชิญ")).toHaveCount(0);
+    page.getByRole("heading", {
+      name: "จัดการสมาชิก — 27 วิศวกรรม",
+      exact: true,
+    }),
+  ).toBeVisible();
+  state.role = "member";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(
-    page.getByRole("link", { name: "พื้นที่จัดเก็บรูป", exact: true }),
+    page.getByRole("link", { name: "บริษัทและการตั้งค่า", exact: true }),
   ).toHaveCount(0);
-  expect(storageCalls).toBe(0);
+  await expect(
+    page.getByRole("heading", {
+      name: "จัดการสมาชิก — 27 วิศวกรรม",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("ชื่อบริษัท", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("เฉพาะ Owner ที่เข้าถึงบริษัทและการตั้งค่าได้", {
+      exact: true,
+    }),
+  ).toBeVisible();
 });
 test("Recipient without company explicitly accepts and opens project", async ({
   page,

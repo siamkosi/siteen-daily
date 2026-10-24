@@ -806,7 +806,10 @@ export default function SiteApp() {
         </select>
         <nav>
           {nav
-            .filter((n) => n.href !== "/storage" || isOwner)
+            .filter(
+              (n) =>
+                (n.href !== "/storage" && n.href !== "/settings") || isOwner,
+            )
             .map((n) => (
               <Link
                 key={n.href}
@@ -1176,45 +1179,45 @@ export default function SiteApp() {
                     เฉพาะ Owner ที่ดูพื้นที่รวมของบริษัทได้
                   </div>
                 ))}
-              {path === "/settings" && (
-                <>
-                  <PageHeading
-                    title="บริษัทและการตั้งค่า"
-                    description="ข้อมูลพื้นที่ทำงานและสถานะการเชื่อมต่อ"
-                  />
-                  <div className="panel settings">
-                    <h2>{active?.name}</h2>
-                    <p>สิทธิ์ของคุณ: {active?.role}</p>
-                    <p>
-                      {demo
-                        ? "โหมดทดลอง ยังไม่ได้เชื่อมฐานข้อมูลจริง"
-                        : "Supabase Auth + RLS + Private Storage"}
-                    </p>
-                    <p>Owner เชิญสมาชิกและมอบหมายโครงการได้ในหน้านี้</p>
-                    <WorkspaceSetup
-                      onCreated={loadWorkspaces}
-                      disabled={demo}
+              {path === "/settings" &&
+                (isOwner ? (
+                  <>
+                    <PageHeading
+                      title="บริษัทและการตั้งค่า"
+                      description="ข้อมูลพื้นที่ทำงานและสถานะการเชื่อมต่อ"
                     />
-                  </div>
-                  {!demo && active?.role === "owner" && (
-                    <CompanyMembers
-                      key={`${user.id}:${workspace}`}
-                      workspace={workspace}
-                      workspaceName={active.name}
-                      projects={data.projects}
-                      onChanged={loadWorkspaces}
-                    />
-                  )}
-                  {!demo && active?.role !== "owner" && (
-                    <div className="panel">
+                    <div className="panel settings">
+                      <h2>{active?.name}</h2>
+                      <p>สิทธิ์ของคุณ: {active?.role}</p>
                       <p>
-                        เฉพาะ owner
-                        ของบริษัทนี้ที่ดูรายชื่อและจัดการบทบาทสมาชิกได้
+                        {demo
+                          ? "โหมดทดลอง ยังไม่ได้เชื่อมฐานข้อมูลจริง"
+                          : "Supabase Auth + RLS + Private Storage"}
                       </p>
+                      <p>Owner เชิญสมาชิกและมอบหมายโครงการได้ในหน้านี้</p>
+                      <WorkspaceSetup
+                        onCreated={loadWorkspaces}
+                        disabled={demo}
+                      />
                     </div>
-                  )}
-                </>
-              )}
+                    {!demo && active?.role === "owner" && (
+                      <CompanyMembers
+                        key={`${user.id}:${workspace}`}
+                        workspace={workspace}
+                        workspaceName={active.name}
+                        projects={data.projects}
+                        onChanged={loadWorkspaces}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div className="panel">
+                    <p>เฉพาะ Owner ที่เข้าถึงบริษัทและการตั้งค่าได้</p>
+                    <Link href="/dashboard" className="button secondary">
+                      กลับภาพรวม
+                    </Link>
+                  </div>
+                ))}
               {![
                 "/dashboard",
                 "/projects",
