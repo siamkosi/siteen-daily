@@ -14,7 +14,7 @@ Validate with isolated PostgreSQL checksums/authorization tests, actual multi-co
 
 Role-change confirmations also bind the membership incarnation as well as assignment row_version. Otherwise a removal/rejoin resets assignment versions and an old role-change form could grant access to the new membership. Owner roster RPC `list_company_members_with_revisions` returns scalar JSON (not capped table rows); the six-argument assignment RPC accepts its membership UUID. The legacy five-argument mutation deliberately fails with 40001 and asks the Owner to reload.
 
-Future rollout: apply `20261024151340_company_member_removal.sql` and ship this app together after backup and approval. Before the app update, old role-change forms safely fail and need refresh; removal is unavailable until the new UI is loaded. No data backfill beyond generated membership UUIDs or storage cleanup is needed. This change is not deployed by this task.
+Future rollout: apply `20261024160347_company_member_removal.sql` and ship this app together after backup and approval. Before the app update, old role-change forms safely fail and need refresh; removal is unavailable until the new UI is loaded. No data backfill beyond generated membership UUIDs or storage cleanup is needed. This change is not deployed by this task.
 
 Final review refinement: the roster response nests each member's assignment rows from the same SQL SELECT snapshot. The UI must not combine two independent roster/assignment requests: across removal/rejoin, an old assignment version1 could otherwise be paired with a new membership UUID. Regression verifies old separate response is ignored and the single roster response drives both displayed role and confirmation.
 

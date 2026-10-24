@@ -1,5 +1,7 @@
 -- Owner-only company membership removal. Local until separately deployed.
 begin;
+set local lock_timeout='10s';
+set local statement_timeout='60s';
 
 -- A new value on every join makes a confirmation invalid after removal/rejoin.
 alter table public.memberships add column membership_version uuid not null default gen_random_uuid();
