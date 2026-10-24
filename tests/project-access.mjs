@@ -23,7 +23,7 @@ const migrations = readdirSync("supabase/migrations")
 const current = migrations.find((n) =>
   n.includes("company_project_access_and_invitations"),
 );
-for (const name of migrations.filter((n) => n !== current))
+for (const name of migrations.filter((n) => n < current))
   await db.exec(readFileSync(`supabase/migrations/${name}`, "utf8"));
 await db.exec(`insert into auth.users(id,email,email_confirmed_at) values
 ('${owner}','owner@example.test',now()),('${engineer}','engineer@example.test',now()),('${viewer}','viewer@example.test',now()),('${outsider}','outsider@example.test',now()),('${unverified}','unverified@example.test',null);
@@ -35,6 +35,8 @@ insert into public.daily_reports(id,workspace_id,project_id,report_date,weather,
 insert into public.daily_requests(id,workspace_id,project_id,report_date,weather,workers,work_done,created_by) values
 ('${q1}','${company}','${p1}',current_date,'ยังไม่บันทึก',1,'Plan A','${owner}'),('${q2}','${company}','${p2}',current_date,'ยังไม่บันทึก',1,'Secret plan','${owner}');`);
 await db.exec(readFileSync(`supabase/migrations/${current}`, "utf8"));
+for (const name of migrations.filter((n) => n > current))
+  await db.exec(readFileSync(`supabase/migrations/${name}`, "utf8"));
 async function as(user, fn) {
   await db.exec(
     `set role authenticated;select set_config('request.jwt.claim.sub','${user}',false)`,
@@ -80,7 +82,7 @@ await as(engineer, async () => {
 await as(owner, async () => {
   await count("public.projects", 2);
   await db.exec(
-    `select public.set_project_assignment('${company}','${p1}','${engineer}','editor',0);select public.set_project_assignment('${company}','${p1}','${viewer}','viewer',0);select public.set_project_assignment('${company}','${p2}','${engineer}','viewer',0);`,
+    `select public.set_project_assignment('${company}','${p1}','${engineer}','editor',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'));select public.set_project_assignment('${company}','${p1}','${viewer}','viewer',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${viewer}'));select public.set_project_assignment('${company}','${p2}','${engineer}','viewer',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'));`,
   );
 });
 await as(engineer, async () => {
@@ -102,7 +104,7 @@ await as(engineer, async () => {
     "42501",
   );
   await deny(
-    `select public.set_project_assignment('${company}','${p2}','${engineer}','editor',1)`,
+    `select public.set_project_assignment('${company}','${p2}','${engineer}','editor',1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'))`,
     "42501",
   );
   await deny(`select public.company_photo_storage('${company}')`, "42501");
@@ -123,23 +125,23 @@ await as(viewer, async () => {
 });
 await as(owner, async () => {
   await deny(
-    `select public.set_project_assignment('${company}','${foreignProject}','${engineer}','editor',0)`,
+    `select public.set_project_assignment('${company}','${foreignProject}','${engineer}','editor',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'))`,
   );
   await deny(
-    `select public.set_project_assignment('${company}','${p1}','${outsider}','editor',0)`,
+    `select public.set_project_assignment('${company}','${p1}','${outsider}','editor',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${outsider}'))`,
   );
   await deny(
-    `select public.set_project_assignment('${company}','${p1}','${owner}','editor',0)`,
+    `select public.set_project_assignment('${company}','${p1}','${owner}','editor',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${owner}'))`,
   );
   await deny(
-    `select public.set_project_assignment('${company}','${p1}','${viewer}','owner',1)`,
+    `select public.set_project_assignment('${company}','${p1}','${viewer}','owner',1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${viewer}'))`,
   );
   await deny(
-    `select public.set_project_assignment('${company}','${p1}','${engineer}','viewer',0)`,
+    `select public.set_project_assignment('${company}','${p1}','${engineer}','viewer',0,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'))`,
     "40001",
   );
   await db.exec(
-    `select public.set_project_assignment('${company}','${p2}','${engineer}',null,1)`,
+    `select public.set_project_assignment('${company}','${p2}','${engineer}',null,1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'))`,
   );
 });
 await as(engineer, async () => {
@@ -330,7 +332,7 @@ await as(owner, async () => {
 // Access revoked on the next request, even with the same authenticated identity.
 await as(owner, () =>
   db.exec(
-    `select public.set_project_assignment('${company}','${p1}','${engineer}',null,1)`,
+    `select public.set_project_assignment('${company}','${p1}','${engineer}',null,1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'))`,
   ),
 );
 await as(engineer, async () => {
@@ -365,7 +367,7 @@ await as(owner, async () => {
     "22023",
   );
   await deny(
-    `select public.set_project_assignment('${company}','${p1}','${engineer}','editor',1)`,
+    `select public.set_project_assignment('${company}','${p1}','${engineer}','editor',1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${company}')) m where m->>'user_id'='${engineer}'))`,
     "40001",
   );
 });

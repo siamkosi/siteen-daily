@@ -113,12 +113,31 @@ export async function companyFixture(
               ]
             : [],
       });
-    if (path.endsWith("/rpc/list_company_members")) {
+    if (path.endsWith("/rpc/list_company_members_with_revisions")) {
       expect(state.role).toBe("owner");
       return r.fulfill({
         json: [
-          { user_id: uid, email: user.email, role: "owner" },
-          { user_id: mid, email: "engineer@example.test", role: "member" },
+          {
+            user_id: uid,
+            email: user.email,
+            role: "owner",
+            membership_version: "60000000-0000-4000-8000-000000000001",
+            assignments: [],
+          },
+          {
+            user_id: mid,
+            email: "engineer@example.test",
+            role: "member",
+            membership_version: "60000000-0000-4000-8000-000000000002",
+            assignments: [
+              {
+                user_id: mid,
+                project_id: pid,
+                role: state.assignment,
+                row_version: state.version,
+              },
+            ],
+          },
         ],
       });
     }
@@ -140,6 +159,7 @@ export async function companyFixture(
         target_user: mid,
         new_role: body.new_role,
         expected_version: state.version,
+        expected_membership_version: "60000000-0000-4000-8000-000000000002",
       });
       state.assignment = body.new_role;
       state.version++;

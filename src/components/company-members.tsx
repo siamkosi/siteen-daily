@@ -11,7 +11,14 @@ import {
   type PageResult,
 } from "@/lib/invitations";
 import { CompanyInvitations } from "./company-invitations";
+import { MemberRemovalConfirmation } from "./member-removal-confirmation";
+import {
+  isMemberRemovalPreview,
+  memberRemovalError,
+  type MemberRemovalPreview,
+} from "@/lib/company-member-removal";
 const actions: Record<string, string> = {
+  company_member_removed: "นำสมาชิกออกจากบริษัท",
   legacy_membership_migrated: "ปรับสมาชิกเป็นสิทธิ์รายโครงการ",
   project_assignment_changed: "เปลี่ยนสิทธิ์โครงการ",
   invitation_send_requested: "ขอส่งคำเชิญ",
@@ -19,7 +26,13 @@ const actions: Record<string, string> = {
   invitation_accepted: "ยอมรับคำเชิญ",
   invitation_cancelled: "ยกเลิกคำเชิญ",
 };
-type Member = { user_id: string; email: string; role: "owner" | "member" };
+type Member = {
+  user_id: string;
+  email: string;
+  role: "owner" | "member";
+  membership_version: string;
+  assignments: ProjectAssignment[];
+};
 export function CompanyMembers({
   workspace,
   workspaceName,
@@ -37,6 +50,7 @@ export function CompanyMembers({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const [removal, setRemoval] = useState<MemberRemovalPreview | null>(null);
   const [change, setChange] = useState<{
     member: Member;
     project: Project;
@@ -69,15 +83,19 @@ export function CompanyMembers({
   const load = useCallback(async () => {
     if (!supabase) return;
     const gen = ++generation.current;
-    const [m, a] = await Promise.all([
-      supabase.rpc("list_company_members", { target_workspace: workspace }),
-      supabase.rpc("list_project_assignments", { target_workspace: workspace }),
-    ]);
+    const m = await supabase.rpc("list_company_members_with_revisions", {
+      target_workspace: workspace,
+    });
     if (m.error) throw m.error;
-    if (a.error) throw a.error;
+    const roster = m.data as Member[];
+    if (
+      !Array.isArray(roster) ||
+      roster.some((member) => !Array.isArray(member.assignments))
+    )
+      throw Error("Incomplete membership snapshot");
     if (alive.current && gen === generation.current) {
-      setMembers(m.data ?? []);
-      setAssignments(a.data ?? []);
+      setMembers(roster);
+      setAssignments(roster.flatMap((member) => member.assignments));
     }
   }, [workspace]);
   useEffect(() => {
@@ -99,6 +117,85 @@ export function CompanyMembers({
       generation.current++;
     };
   }, [load, audit]);
+  async function previewRemoval(member: Member) {
+    if (!supabase) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const r = await supabase.rpc("preview_company_member_removal", {
+        target_workspace: workspace,
+        target_user: member.user_id,
+      });
+      if (r.error) throw r.error;
+      if (!isMemberRemovalPreview(r.data, workspace, member.user_id))
+        throw Error("Invalid removal preview");
+      if (alive.current) setRemoval(r.data);
+    } catch (e) {
+      if (alive.current) {
+        setError(memberRemovalError(e));
+        setMembers([]);
+        setAssignments([]);
+      }
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+  async function confirmRemoval() {
+    if (!supabase || !removal) return;
+    const snapshot = removal;
+    let acknowledged = false;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const r = await supabase.rpc("remove_company_member", {
+        target_workspace: workspace,
+        target_user: snapshot.user_id,
+        expected_membership_version: snapshot.membership_version,
+        expected_assignments_hash: snapshot.assignments_hash,
+      });
+      if (r.error) throw r.error;
+      acknowledged = true;
+      if (!alive.current) return;
+      setMessage(
+        `นำ ${snapshot.email} ออกจากบริษัทแล้ว รายงาน รูป และประวัติเดิมยังอยู่`,
+      );
+      setRemoval(null);
+      setMembers([]);
+      setAssignments([]);
+      await load();
+      await onChanged();
+      await audit();
+    } catch (e) {
+      if (alive.current) {
+        setRemoval(null);
+        setMembers([]);
+        setAssignments([]);
+        setError(
+          acknowledged
+            ? "นำสมาชิกออกแล้ว แต่โหลดรายชื่อหรือประวัติล่าสุดไม่สำเร็จ กรุณาโหลดใหม่"
+            : memberRemovalError(e),
+        );
+      }
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+  function emailLabel(user: unknown) {
+    if (typeof user !== "string") return "";
+    const current = members.find((m) => m.user_id === user)?.email;
+    if (current) return current;
+    const previous = events.find(
+      (e) =>
+        e.action === "company_member_removed" &&
+        e.details.user_id === user &&
+        typeof e.details.email === "string",
+    );
+    return typeof previous?.details.email === "string"
+      ? previous.details.email
+      : user;
+  }
   return (
     <>
       <section
@@ -146,7 +243,7 @@ export function CompanyMembers({
                         {p.name}
                         <select
                           aria-label={`สิทธิ์ ${m.email} — ${p.name}`}
-                          disabled={busy || !!change || !!error}
+                          disabled={busy || !!change || !!removal || !!error}
                           value={a?.role ?? ""}
                           onChange={(e) =>
                             setChange({
@@ -167,9 +264,29 @@ export function CompanyMembers({
                       </label>
                     );
                   })}
+                {m.role !== "owner" && (
+                  <button
+                    type="button"
+                    className="button secondary danger"
+                    disabled={
+                      busy || loading || !!change || !!removal || !!error
+                    }
+                    onClick={() => void previewRemoval(m)}
+                  >
+                    นำ {m.email} ออกจากบริษัท
+                  </button>
+                )}
               </article>
             ))}
           </div>
+        )}
+        {removal && (
+          <MemberRemovalConfirmation
+            snapshot={removal}
+            busy={busy}
+            onCancel={() => setRemoval(null)}
+            onConfirm={() => void confirmRemoval()}
+          />
         )}
         {change && (
           <div
@@ -209,6 +326,8 @@ export function CompanyMembers({
                     target_user: change.member.user_id,
                     new_role: change.role,
                     expected_version: change.version,
+                    expected_membership_version:
+                      change.member.membership_version,
                   });
                   if (r.error) throw r.error;
                   setMessage("บันทึกสิทธิ์โครงการแล้ว");
@@ -234,7 +353,7 @@ export function CompanyMembers({
         )}
         <button
           className="text-button"
-          disabled={busy || loading || !!change}
+          disabled={busy || loading || !!change || !!removal}
           onClick={async () => {
             setLoading(true);
             setError("");
@@ -265,15 +384,12 @@ export function CompanyMembers({
             <b>{actions[e.action] ?? "เปลี่ยนแปลงสิทธิ์"}</b>
             <p>
               {new Date(e.created_at).toLocaleString("th-TH")} •{" "}
-              {members.find((m) => m.user_id === e.actor_id)?.email ??
-                e.actor_id ??
-                "ระบบ"}
+              {emailLabel(e.actor_id) || "ระบบ"}
             </p>
             <p>
               {typeof e.details.email === "string"
                 ? e.details.email
-                : (members.find((m) => m.user_id === e.details.user_id)
-                    ?.email ?? "")}
+                : emailLabel(e.details.user_id)}
             </p>
             {typeof e.details.project_id === "string" && (
               <p>

@@ -170,11 +170,11 @@ try {
   const roles = await Promise.allSettled([
     as(
       o1,
-      `select public.set_project_assignment('${a}','${pa}','${u1}','viewer',1)`,
+      `select public.set_project_assignment('${a}','${pa}','${u1}','viewer',1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${a}')) m where m->>'user_id'='${u1}'))`,
     ),
     as(
       o2,
-      `select public.set_project_assignment('${a}','${pa}','${u1}',null,1)`,
+      `select public.set_project_assignment('${a}','${pa}','${u1}',null,1,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${a}')) m where m->>'user_id'='${u1}'))`,
     ),
   ]);
   assert.equal(roles.filter((r) => r.status === "fulfilled").length, 1);
@@ -184,6 +184,71 @@ try {
     ),
   );
   checks += 2;
+  // Removal and assignment updates serialize on the company lock; stale previews never win.
+  const removePreview = async () =>
+    parse(
+      await as(
+        o1,
+        `select public.preview_company_member_removal('${a}','${u1}')`,
+      ),
+    );
+  const removal = await removePreview();
+  const removeSql = (s) =>
+    `select public.remove_company_member('${a}','${u1}','${s.membership_version}','${s.assignments_hash}')`;
+  const removalRace = await Promise.allSettled([
+    as(o1, removeSql(removal)),
+    as(
+      o2,
+      `select public.set_project_assignment('${a}','${pa}','${u1}','editor',2,(select (m->>'membership_version')::uuid from jsonb_array_elements(public.list_company_members_with_revisions('${a}')) m where m->>'user_id'='${u1}'))`,
+    ),
+  ]);
+  assert.equal(removalRace.filter((r) => r.status === "fulfilled").length, 1);
+  checks++;
+  if (
+    (await scalar(
+      `select count(*) from public.memberships where workspace_id='${a}' and user_id='${u1}'`,
+    )) === "1"
+  )
+    await as(o1, removeSql(await removePreview()));
+  await assert.rejects(as(u1, accept), (e) => e.message.includes("40001"));
+  checks++;
+  await sql(
+    `update private.invitation_send_attempts set created_at=now()-interval '2 minutes' where invitation_id='${offer.id}'`,
+  );
+  const reoffer = parse(await as(o1, prepare(a, pa, "user5@example.test")));
+  await as(u1, `select public.accept_company_invitation('${reoffer.id}',1)`);
+  const rejoined = await removePreview();
+  assert.notEqual(removal.membership_version, rejoined.membership_version);
+  checks++;
+  await assert.rejects(
+    as(
+      o1,
+      removeSql({
+        ...rejoined,
+        membership_version: removal.membership_version,
+      }),
+    ),
+    (e) => e.message.includes("40001"),
+  );
+  checks++;
+  // Replaying an accepted invitation while removing the member cannot restore access.
+  const replayRace = await Promise.allSettled([
+    as(o1, removeSql(rejoined)),
+    as(u1, `select public.accept_company_invitation('${reoffer.id}',1)`),
+  ]);
+  assert.equal(replayRace[0].status, "fulfilled");
+  assert.equal(
+    await scalar(
+      `select count(*) from public.memberships where workspace_id='${a}' and user_id='${u1}'`,
+    ),
+    "0",
+  );
+  checks += 2;
+  await assert.rejects(
+    as(u1, `select public.accept_company_invitation('${reoffer.id}',1)`),
+    (e) => e.message.includes("40001"),
+  );
+  checks++;
   // Exact per-Owner cap across two companies with concurrent last-slot attempts.
   await sql(
     `update private.invitation_send_attempts set created_at=now()-interval '2 hours';insert into private.invitation_send_attempts(workspace_id,invitation_id,owner_id,request_id) select '${a}','${offer.id}','${o1}',gen_random_uuid() from generate_series(1,9)`,
